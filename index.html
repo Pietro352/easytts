@@ -147,8 +147,9 @@
                 <div class="field">
                     <label for="source">Come registro l’audio</label>
                     <select id="source">
-                        <option value="tab">Questa scheda (consigliato)</option>
+                        <option value="auto">Automatico (consigliato)</option>
                         <option value="device">Uscita del PC (Monitor / Stereo Mix)</option>
+                        <option value="tab">Questa scheda</option>
                     </select>
                 </div>
             </div>
@@ -172,7 +173,7 @@
                 </div>
             </div>
 
-            <p class="note" id="hint">Usa la voce del tuo dispositivo, quella più chiara. Per salvarla il browser registra l’audio mentre viene letto: quando compare la finestra di condivisione scegli <b>Questa scheda</b> e lascia attivo <b>Condividi audio scheda</b>. Non cambiare scheda finché non finisce.</p>
+            <p class="note" id="hint">Usa la voce del tuo dispositivo, quella più chiara. Il browser non permette di salvarla direttamente, quindi la registra mentre viene letta: la prima volta conferma il permesso audio. Durante la lettura non riprodurre altri suoni sul PC e non chiudere la scheda.</p>
         </div>
     </main>
 
@@ -231,8 +232,8 @@ if ('speechSynthesis' in window) {
     els.go.disabled = els.listen.disabled = true;
 }
 els.voice.addEventListener('change', () => store.set('voice', els.voice.value));
-els.source.value = store.get('source') || 'tab';
-els.source.addEventListener('change', () => store.set('source', els.source.value));
+els.source.value = store.get('source2') || 'auto';
+els.source.addEventListener('change', () => store.set('source2', els.source.value));
 els.rate.addEventListener('input', () => { $('#ratev').textContent = Number(els.rate.value).toFixed(1) + '×'; });
 
 /* ---------- Stato ---------- */
@@ -255,15 +256,16 @@ function makeUtterance() {
 /* ---------- Cattura audio ---------- */
 const audioConstraints = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
 
-async function openStream() {
-    if (els.source.value === 'device') {
-        const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
-        probe.getTracks().forEach((t) => t.stop());
-        const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput');
-        const loop = devs.find((d) => /monitor|stereo mix|mix stereo|loopback|what u hear/i.test(d.label));
-        if (!loop) throw new Error('Non trovo un’uscita del PC (Monitor o Stereo Mix). Usa “Questa scheda”.');
-        return navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: loop.deviceId }, ...audioConstraints } });
-    }
+async function openDevice() {
+    const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
+    probe.getTracks().forEach((t) => t.stop());
+    const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput');
+    const loop = devs.find((d) => /monitor|stereo mix|mix stereo|loopback|what u hear/i.test(d.label));
+    if (!loop) throw new Error('Non trovo un’uscita del PC (Monitor o Stereo Mix).');
+    return navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: loop.deviceId }, ...audioConstraints } });
+}
+
+async function openTab() {
     const display = await navigator.mediaDevices.getDisplayMedia({
         video: true,
         audio: audioConstraints,
@@ -277,6 +279,13 @@ async function openStream() {
         throw new Error('Audio non condiviso: riprova e lascia attivo “Condividi audio scheda”.');
     }
     return new MediaStream(display.getAudioTracks());
+}
+
+async function openStream() {
+    const mode = els.source.value;
+    if (mode === 'tab') return openTab();
+    if (mode === 'device') return openDevice();
+    try { return await openDevice(); } catch (err) { console.warn('Uscita del PC non disponibile, uso la scheda', err); return openTab(); }
 }
 
 let session = null;
@@ -370,13 +379,13 @@ async function generate() {
     els.player.pause();
     speechSynthesis.cancel();
     try {
-        showStatus('Scegli “Questa scheda” e lascia attivo “Condividi audio scheda”…', { busy: true });
+        showStatus('Se compare una finestra del browser, conferma: serve per registrare la voce…', { busy: true });
         const stream = await openStream();
         showStatus('Registro la voce mentre legge…', { busy: true });
         const blob = await record(stream, makeUtterance());
         showStatus('Preparo il file…', { busy: true });
         pcm = await toPcm(blob);
-        if (!pcm) throw new Error('Non ho sentito nessun audio. Prova l’altra opzione di registrazione, oppure controlla che l’audio non sia disattivato.');
+        if (!pcm) throw new Error('Non ho sentito nessun audio. Prova un’altra opzione di registrazione e controlla che il volume del PC non sia a zero.');
         lastWav = makeWav(pcm); lastMp3 = null;
         if (audioUrl) URL.revokeObjectURL(audioUrl);
         audioUrl = URL.createObjectURL(lastWav);
