@@ -136,28 +136,41 @@
             <div class="controls">
                 <div class="field">
                     <label for="voice">Voce</label>
-                    <select id="voice"></select>
+                    <select id="voice">
+                        <optgroup label="Italiano">
+                            <option value="it-IT-IsabellaNeural">Isabella · donna</option>
+                            <option value="it-IT-ElsaNeural">Elsa · donna</option>
+                            <option value="it-IT-DiegoNeural">Diego · uomo</option>
+                            <option value="it-IT-GiuseppeMultilingualNeural">Giuseppe · uomo (multilingue)</option>
+                        </optgroup>
+                        <optgroup label="English">
+                            <option value="en-US-AvaMultilingualNeural">Ava · woman (US)</option>
+                            <option value="en-US-AndrewMultilingualNeural">Andrew · man (US)</option>
+                            <option value="en-GB-SoniaNeural">Sonia · woman (UK)</option>
+                            <option value="en-GB-RyanNeural">Ryan · man (UK)</option>
+                        </optgroup>
+                        <optgroup label="Español">
+                            <option value="es-ES-ElviraNeural">Elvira · mujer</option>
+                            <option value="es-ES-AlvaroNeural">Álvaro · hombre</option>
+                        </optgroup>
+                        <optgroup label="Français">
+                            <option value="fr-FR-DeniseNeural">Denise · femme</option>
+                            <option value="fr-FR-HenriNeural">Henri · homme</option>
+                        </optgroup>
+                        <optgroup label="Deutsch">
+                            <option value="de-DE-KatjaNeural">Katja · Frau</option>
+                            <option value="de-DE-ConradNeural">Conrad · Mann</option>
+                        </optgroup>
+                    </select>
                 </div>
                 <div class="field">
                     <label for="rate">Velocità <span id="ratev">1.0×</span></label>
                     <input type="range" id="rate" min="0.5" max="2" step="0.1" value="1">
                 </div>
             </div>
-            <div class="controls">
-                <div class="field">
-                    <label for="source">Come registro l’audio</label>
-                    <select id="source">
-                        <option value="auto">Automatico (consigliato)</option>
-                        <option value="device">Uscita del PC (Monitor / Stereo Mix)</option>
-                        <option value="tab">Questa scheda</option>
-                    </select>
-                </div>
-            </div>
 
             <div class="actions">
-                <button class="btn primary" id="go">Genera e scarica</button>
-                <button class="btn" id="listen">Solo ascolto</button>
-                <button class="btn" id="stop">Stop</button>
+                <button class="btn primary" id="go">Genera audio</button>
             </div>
 
             <div class="progress hidden" id="progress">
@@ -173,7 +186,7 @@
                 </div>
             </div>
 
-            <p class="note" id="hint">Usa la voce del tuo dispositivo, quella più chiara. Il browser non permette di salvarla direttamente, quindi la registra mentre viene letta: la prima volta conferma il permesso audio. Durante la lettura non riprodurre altri suoni sul PC e non chiudere la scheda.</p>
+            <p class="note">Voci neurali naturali, gratis e senza account. Il testo viene inviato al servizio vocale solo per generare l’audio e non viene salvato.</p>
         </div>
     </main>
 
@@ -183,12 +196,11 @@
     </footer>
 </div>
 
-<script src="vendor/lame.min.js"></script>
 <script>
+const API = 'https://clickio.vercel.app/api/tts';
 const $ = (s) => document.querySelector(s);
 const els = {
-    text: $('#text'), count: $('#count'), voice: $('#voice'), rate: $('#rate'), source: $('#source'),
-    go: $('#go'), listen: $('#listen'), stop: $('#stop'),
+    text: $('#text'), count: $('#count'), voice: $('#voice'), rate: $('#rate'), go: $('#go'),
     progress: $('#progress'), bar: $('#bar'), status: $('#status'),
     result: $('#result'), player: $('#player'), mp3: $('#dl-mp3'), wav: $('#dl-wav'),
 };
@@ -197,7 +209,6 @@ const store = {
     set: (k, v) => { try { localStorage.setItem('easytts:' + k, v); } catch {} },
 };
 
-/* ---------- Testo ---------- */
 els.text.value = store.get('text') || '';
 const updateCount = () => {
     const n = els.text.value.length;
@@ -207,36 +218,11 @@ const updateCount = () => {
 els.text.addEventListener('input', updateCount);
 updateCount();
 
-/* ---------- Voci di sistema ---------- */
-function loadVoices() {
-    const list = speechSynthesis.getVoices();
-    if (!list.length) return;
-    const lang = (navigator.language || 'it').slice(0, 2).toLowerCase();
-    const sorted = [...list].sort((a, b) =>
-        (b.lang.toLowerCase().startsWith(lang) - a.lang.toLowerCase().startsWith(lang)) || a.name.localeCompare(b.name));
-    els.voice.innerHTML = '';
-    sorted.forEach((v) => {
-        const o = document.createElement('option');
-        o.value = v.voiceURI;
-        o.textContent = `${v.name} (${v.lang})`;
-        els.voice.appendChild(o);
-    });
-    const saved = store.get('voice');
-    if (saved && [...els.voice.options].some((o) => o.value === saved)) els.voice.value = saved;
-}
-if ('speechSynthesis' in window) {
-    loadVoices();
-    speechSynthesis.addEventListener('voiceschanged', loadVoices);
-} else {
-    showStatus('Il tuo browser non supporta le voci di sistema.', { error: true });
-    els.go.disabled = els.listen.disabled = true;
-}
-els.voice.addEventListener('change', () => store.set('voice', els.voice.value));
-els.source.value = store.get('source2') || 'auto';
-els.source.addEventListener('change', () => store.set('source2', els.source.value));
+const savedVoice = store.get('voice2');
+if (savedVoice && [...els.voice.options].some((o) => o.value === savedVoice)) els.voice.value = savedVoice;
+els.voice.addEventListener('change', () => store.set('voice2', els.voice.value));
 els.rate.addEventListener('input', () => { $('#ratev').textContent = Number(els.rate.value).toFixed(1) + '×'; });
 
-/* ---------- Stato ---------- */
 function showStatus(msg, { error = false, busy = false } = {}) {
     els.progress.classList.remove('hidden');
     els.status.textContent = msg;
@@ -245,173 +231,104 @@ function showStatus(msg, { error = false, busy = false } = {}) {
     els.bar.classList.toggle('indeterminate', busy);
 }
 
-function makeUtterance() {
-    const u = new SpeechSynthesisUtterance(els.text.value.trim());
-    const v = speechSynthesis.getVoices().find((x) => x.voiceURI === els.voice.value);
-    if (v) { u.voice = v; u.lang = v.lang; }
-    u.rate = Number(els.rate.value);
-    return u;
-}
-
-/* ---------- Cattura audio ---------- */
-const audioConstraints = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
-
-async function openDevice() {
-    const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
-    probe.getTracks().forEach((t) => t.stop());
-    const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput');
-    const loop = devs.find((d) => /monitor|stereo mix|mix stereo|loopback|what u hear/i.test(d.label));
-    if (!loop) throw new Error('Non trovo un’uscita del PC (Monitor o Stereo Mix).');
-    return navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: loop.deviceId }, ...audioConstraints } });
-}
-
-async function openTab() {
-    const display = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: audioConstraints,
-        preferCurrentTab: true,
-        selfBrowserSurface: 'include',
-        systemAudio: 'include',
-    });
-    display.getVideoTracks().forEach((t) => t.stop());
-    if (!display.getAudioTracks().length) {
-        display.getTracks().forEach((t) => t.stop());
-        throw new Error('Audio non condiviso: riprova e lascia attivo “Condividi audio scheda”.');
+/* Divide il testo in parti, spezzando a fine frase */
+function splitText(text, max = 1000) {
+    const parts = [];
+    let rest = text.replace(/\r/g, '').trim();
+    while (rest.length > max) {
+        let cut = -1;
+        for (const re of [/[.!?…]["»”’)]*\s/g, /[;:,]\s/g, /\s/g]) {
+            let m, last = -1;
+            re.lastIndex = 0;
+            while ((m = re.exec(rest.slice(0, max))) !== null) last = m.index + m[0].length;
+            if (last > max * 0.4) { cut = last; break; }
+        }
+        if (cut < 0) cut = max;
+        parts.push(rest.slice(0, cut).trim());
+        rest = rest.slice(cut).trim();
     }
-    return new MediaStream(display.getAudioTracks());
+    if (rest) parts.push(rest);
+    return parts.filter(Boolean);
 }
 
-async function openStream() {
-    const mode = els.source.value;
-    if (mode === 'tab') return openTab();
-    if (mode === 'device') return openDevice();
-    try { return await openDevice(); } catch (err) { console.warn('Uscita del PC non disponibile, uso la scheda', err); return openTab(); }
+async function synth(text, voice, rate) {
+    let lastErr;
+    for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+            const res = await fetch(API, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text, voice, rate }),
+            });
+            if (!res.ok) {
+                let msg = 'Errore ' + res.status;
+                try { msg = (await res.json()).error || msg; } catch {}
+                throw new Error(msg);
+            }
+            return await res.arrayBuffer();
+        } catch (err) { lastErr = err; }
+    }
+    throw lastErr;
 }
 
-let session = null;
-
-function record(stream, utterance) {
-    return new Promise((resolve, reject) => {
-        const chunks = [];
-        const rec = new MediaRecorder(stream);
-        let finished = false;
-        const finish = () => {
-            if (finished) return;
-            finished = true;
-            if (rec.state !== 'inactive') rec.stop();
-        };
-        rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
-        rec.onerror = (e) => reject(e.error || new Error('Registrazione non riuscita'));
-        rec.onstop = () => {
-            stream.getTracks().forEach((t) => t.stop());
-            session = null;
-            resolve(new Blob(chunks, { type: rec.mimeType }));
-        };
-        utterance.onend = () => setTimeout(finish, 500);
-        utterance.onerror = (e) => { if (e.error === 'canceled' || e.error === 'interrupted') finish(); else { finish(); } };
-        session = { finish };
-        rec.start();
-        setTimeout(() => speechSynthesis.speak(utterance), 300);
-    });
-}
-
-/* ---------- Elaborazione audio ---------- */
-async function toPcm(blob) {
+/* ---------- WAV ---------- */
+async function mp3ToWav(blob) {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     try {
         const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
-        const len = buf.length, chs = buf.numberOfChannels, mono = new Float32Array(len);
+        const len = buf.length, chs = buf.numberOfChannels, sr = buf.sampleRate;
+        const pcm = new Int16Array(len * chs);
         for (let c = 0; c < chs; c++) {
             const d = buf.getChannelData(c);
-            for (let i = 0; i < len; i++) mono[i] += d[i] / chs;
+            for (let i = 0; i < len; i++) pcm[i * chs + c] = Math.max(-1, Math.min(1, d[i])) * 32767;
         }
-        let peak = 0;
-        for (let i = 0; i < len; i++) peak = Math.max(peak, Math.abs(mono[i]));
-        if (peak < 0.003) return null;
-        const thr = peak * 0.02;
-        let a = 0, b = len - 1;
-        while (a < len && Math.abs(mono[a]) < thr) a++;
-        while (b > a && Math.abs(mono[b]) < thr) b--;
-        a = Math.max(0, a - Math.round(buf.sampleRate * 0.08));
-        b = Math.min(len - 1, b + Math.round(buf.sampleRate * 0.15));
-        const gain = Math.min(4, 0.9 / peak);
-        const out = new Int16Array(b - a + 1);
-        for (let i = a; i <= b; i++) out[i - a] = Math.max(-1, Math.min(1, mono[i] * gain)) * 32767;
-        return { samples: out, sampleRate: buf.sampleRate };
+        const bytes = pcm.length * 2, v = new DataView(new ArrayBuffer(44 + bytes));
+        const w = (o, t) => [...t].forEach((ch, i) => v.setUint8(o + i, ch.charCodeAt(0)));
+        w(0, 'RIFF'); v.setUint32(4, 36 + bytes, true); w(8, 'WAVE'); w(12, 'fmt ');
+        v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, chs, true);
+        v.setUint32(24, sr, true); v.setUint32(28, sr * 2 * chs, true);
+        v.setUint16(32, 2 * chs, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, bytes, true);
+        new Int16Array(v.buffer, 44).set(pcm);
+        return new Blob([v], { type: 'audio/wav' });
     } finally { ctx.close(); }
 }
 
-function makeWav({ samples, sampleRate }) {
-    const bytes = samples.length * 2, v = new DataView(new ArrayBuffer(44 + bytes));
-    const w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
-    w(0, 'RIFF'); v.setUint32(4, 36 + bytes, true); w(8, 'WAVE'); w(12, 'fmt ');
-    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
-    v.setUint32(24, sampleRate, true); v.setUint32(28, sampleRate * 2, true);
-    v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, bytes, true);
-    new Int16Array(v.buffer, 44).set(samples);
-    return new Blob([v], { type: 'audio/wav' });
-}
-
-async function makeMp3({ samples, sampleRate }) {
-    const enc = new lamejs.Mp3Encoder(1, sampleRate, 128);
-    const out = [], step = 1152 * 20;
-    for (let i = 0; i < samples.length; i += step) {
-        const part = enc.encodeBuffer(samples.subarray(i, i + step));
-        if (part.length) out.push(part);
-        if ((i / step) % 25 === 24) await new Promise((r) => setTimeout(r));
-    }
-    const end = enc.flush();
-    if (end.length) out.push(end);
-    return new Blob(out, { type: 'audio/mpeg' });
-}
-
 /* ---------- Genera ---------- */
-let pcm = null, lastWav = null, lastMp3 = null, audioUrl = null;
+let lastMp3 = null, lastWav = null, audioUrl = null;
 
 async function generate() {
-    if (!els.text.value.trim()) { showStatus('Scrivi prima un testo.', { error: true }); els.text.focus(); return; }
-    if (!navigator.mediaDevices || !window.MediaRecorder) {
-        showStatus('Questo browser non può registrare l’audio. Usa Chrome o Edge.', { error: true });
-        return;
-    }
+    const text = els.text.value.trim();
+    if (!text) { showStatus('Scrivi prima un testo.', { error: true }); els.text.focus(); return; }
+    const parts = splitText(text);
+    const rate = Math.round((Number(els.rate.value) - 1) * 100);
     els.go.disabled = true;
     els.result.classList.add('hidden');
     els.player.pause();
-    speechSynthesis.cancel();
     try {
-        showStatus('Se compare una finestra del browser, conferma: serve per registrare la voce…', { busy: true });
-        const stream = await openStream();
-        showStatus('Registro la voce mentre legge…', { busy: true });
-        const blob = await record(stream, makeUtterance());
-        showStatus('Preparo il file…', { busy: true });
-        pcm = await toPcm(blob);
-        if (!pcm) throw new Error('Non ho sentito nessun audio. Prova un’altra opzione di registrazione e controlla che il volume del PC non sia a zero.');
-        lastWav = makeWav(pcm); lastMp3 = null;
+        const chunks = [];
+        for (let i = 0; i < parts.length; i++) {
+            showStatus(parts.length > 1 ? `Genero la voce… parte ${i + 1} di ${parts.length}` : 'Genero la voce…', { busy: true });
+            chunks.push(await synth(parts[i], els.voice.value, rate));
+        }
+        lastMp3 = new Blob(chunks, { type: 'audio/mpeg' });
+        lastWav = null;
         if (audioUrl) URL.revokeObjectURL(audioUrl);
-        audioUrl = URL.createObjectURL(lastWav);
+        audioUrl = URL.createObjectURL(lastMp3);
         els.player.src = audioUrl;
         els.progress.classList.add('hidden');
         els.result.classList.remove('hidden');
+        els.player.play().catch(() => {});
     } catch (err) {
         console.error(err);
-        const denied = err && err.name === 'NotAllowedError';
-        showStatus(denied ? 'Condivisione annullata. Riprova e conferma la finestra del browser.' : (err.message || 'Errore durante la registrazione.'), { error: true });
+        showStatus('Errore: ' + (err && err.message ? err.message : 'impossibile generare l’audio.') + ' Controlla la connessione e riprova.', { error: true });
     } finally {
         els.go.disabled = false;
     }
 }
-
 els.go.onclick = generate;
-els.listen.onclick = () => {
-    if (!els.text.value.trim()) { els.text.focus(); return; }
-    speechSynthesis.cancel();
-    speechSynthesis.speak(makeUtterance());
-};
-els.stop.onclick = () => { speechSynthesis.cancel(); if (session) session.finish(); };
 els.text.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); generate(); }
 });
-window.addEventListener('beforeunload', () => speechSynthesis.cancel());
 
 /* ---------- Download ---------- */
 function save(blob, ext) {
@@ -425,21 +342,21 @@ function save(blob, ext) {
     a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 }
-els.wav.onclick = () => { if (lastWav) save(lastWav, 'wav'); };
-els.mp3.onclick = async () => {
-    if (!pcm) return;
-    els.mp3.disabled = true;
-    const label = els.mp3.textContent;
-    els.mp3.textContent = 'Preparo MP3…';
+els.mp3.onclick = () => { if (lastMp3) save(lastMp3, 'mp3'); };
+els.wav.onclick = async () => {
+    if (!lastMp3) return;
+    els.wav.disabled = true;
+    const label = els.wav.textContent;
+    els.wav.textContent = 'Preparo WAV…';
     try {
-        if (!lastMp3) lastMp3 = await makeMp3(pcm);
-        save(lastMp3, 'mp3');
+        if (!lastWav) lastWav = await mp3ToWav(lastMp3);
+        save(lastWav, 'wav');
     } catch (err) {
         console.error(err);
-        showStatus('Errore nella creazione dell’MP3: ' + err.message, { error: true });
+        showStatus('Errore nella creazione del WAV: ' + err.message, { error: true });
     } finally {
-        els.mp3.textContent = label;
-        els.mp3.disabled = false;
+        els.wav.textContent = label;
+        els.wav.disabled = false;
     }
 };
 </script>
